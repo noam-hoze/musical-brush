@@ -3,6 +3,7 @@ import numpy as np
 import os
 from datetime import datetime
 import wave
+import time
 
 # Initialize Pygame
 pygame.init()
@@ -36,6 +37,8 @@ phrase_speed = 0.1  # Adjust this to change the speed of the phrase
 # New variables for recording
 recording = False
 recorded_sounds = []
+recorded_times = []
+start_time = 0
 current_recording = None
 
 # Button dimensions and positions
@@ -50,7 +53,7 @@ font = pygame.font.Font(None, 24)
 
 # Modified play_sound function
 def play_sound(frequency):
-    global recording, recorded_sounds
+    global recording, recorded_sounds, recorded_times, start_time
     duration = 200  # milliseconds
     sample_rate = 44100
     t = np.linspace(0, duration / 1000, int(duration * sample_rate / 1000), False)
@@ -64,26 +67,52 @@ def play_sound(frequency):
     
     if recording:
         recorded_sounds.append(stereo_sound)
+        recorded_times.append(time.time() - start_time)
     
     sound = pygame.sndarray.make_sound(stereo_sound)
     sound.play()
 
 # Function to save recording
 def save_recording():
-    global recorded_sounds
+    global recorded_sounds, recorded_times
+    if not recorded_sounds:
+        print("No sounds were recorded.")
+        return None
+
     if not os.path.exists("recordings"):
         os.makedirs("recordings")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"recordings/recording_{timestamp}.wav"
     
+    # Calculate total duration
+    total_duration = recorded_times[-1] + (recorded_sounds[-1].shape[0] / 44100)
+    
+    # Create output array (using float32 for intermediate calculations)
+    total_samples = int(total_duration * 44100)
+    output = np.zeros((total_samples, 2), dtype=np.float32)
+    
+    # Place sounds in the output array
+    for sound, start_time in zip(recorded_sounds, recorded_times):
+        start_sample = int(start_time * 44100)
+        end_sample = start_sample + sound.shape[0]
+        output[start_sample:end_sample] += sound.astype(np.float32) / 32767.0  # Normalize to [-1, 1] range
+    
+    # Normalize the output to prevent clipping
+    max_amplitude = np.max(np.abs(output))
+    if max_amplitude > 1.0:
+        output /= max_amplitude
+    
+    # Convert back to int16
+    output = (output * 32767).astype(np.int16)
+    
     with wave.open(filename, 'wb') as wf:
-        wf.setnchannels(2)  # Changed to 2 channels for stereo
+        wf.setnchannels(2)
         wf.setsampwidth(2)
         wf.setframerate(44100)
-        for sound in recorded_sounds:
-            wf.writeframes(sound.tobytes())
+        wf.writeframes(output.tobytes())
     
     recorded_sounds = []
+    recorded_times = []
     return filename
 
 # New function to play the harp phrase
@@ -120,6 +149,8 @@ while running:
             if record_button.collidepoint(x, y):
                 recording = True
                 recorded_sounds = []
+                recorded_times = []
+                start_time = time.time()
             elif stop_button.collidepoint(x, y):
                 if recording:
                     recording = False
