@@ -25,10 +25,14 @@ for y in range(height):
         index = int(len(c_lydian_frequencies) * x / width)
         frequencies[y][x] = c_lydian_frequencies[index]
 
-# Function to play harp-like sound based on pixel position
-def play_sound(x, y):
-    frequency = frequencies[y][x]
-    duration = 500  # milliseconds
+# New variables for continuous harp phrase
+last_played_index = -1
+phrase_direction = 0  # 0 for no movement, 1 for up, -1 for down
+phrase_speed = 0.1  # Adjust this to change the speed of the phrase
+
+# Modified play_sound function
+def play_sound(frequency):
+    duration = 200  # milliseconds (shorter duration for quicker response)
     sample_rate = 44100
     t = np.linspace(0, duration / 1000, int(duration * sample_rate / 1000), False)
     
@@ -50,9 +54,30 @@ def play_sound(x, y):
     sound = pygame.sndarray.make_sound(sound.copy())
     sound.play()
 
+# New function to play the harp phrase
+def play_harp_phrase(x, y):
+    global last_played_index, phrase_direction
+    
+    current_index = int(len(c_lydian_frequencies) * x / width)
+    
+    if last_played_index == -1:
+        last_played_index = current_index
+    elif current_index > last_played_index:
+        phrase_direction = 1
+    elif current_index < last_played_index:
+        phrase_direction = -1
+    else:
+        phrase_direction = 0
+    
+    if phrase_direction != 0:
+        last_played_index += phrase_direction
+        last_played_index = max(0, min(last_played_index, len(c_lydian_frequencies) - 1))
+        play_sound(c_lydian_frequencies[last_played_index])
+
 # Main game loop
 running = True
 dragging = False
+last_phrase_time = 0
 
 while running:
     for event in pygame.event.get():
@@ -60,11 +85,15 @@ while running:
             running = False
         elif event.type == pygame.MOUSEBUTTONDOWN:
             dragging = True
+            last_played_index = -1  # Reset the phrase when starting a new drag
         elif event.type == pygame.MOUSEBUTTONUP:
             dragging = False
         elif event.type == pygame.MOUSEMOTION and dragging:
             x, y = event.pos
-            play_sound(x, y)
+            current_time = pygame.time.get_ticks()
+            if current_time - last_phrase_time > phrase_speed * 1000:
+                play_harp_phrase(x, y)
+                last_phrase_time = current_time
     
     # Clear the screen
     screen.fill((255, 255, 255))
