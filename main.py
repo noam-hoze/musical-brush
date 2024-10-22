@@ -1,5 +1,8 @@
 import pygame
 import numpy as np
+import os
+from datetime import datetime
+import wave
 
 # Initialize Pygame
 pygame.init()
@@ -30,29 +33,58 @@ last_played_index = -1
 phrase_direction = 0  # 0 for no movement, 1 for up, -1 for down
 phrase_speed = 0.1  # Adjust this to change the speed of the phrase
 
+# New variables for recording
+recording = False
+recorded_sounds = []
+current_recording = None
+
+# Button dimensions and positions
+button_width, button_height = 80, 30
+button_margin = 10
+record_button = pygame.Rect(width - 3 * (button_width + button_margin), 10, button_width, button_height)
+stop_button = pygame.Rect(width - 2 * (button_width + button_margin), 10, button_width, button_height)
+play_button = pygame.Rect(width - (button_width + button_margin), 10, button_width, button_height)
+
+# Font for button text
+font = pygame.font.Font(None, 24)
+
 # Modified play_sound function
 def play_sound(frequency):
-    duration = 200  # milliseconds (shorter duration for quicker response)
+    global recording, recorded_sounds
+    duration = 200  # milliseconds
     sample_rate = 44100
     t = np.linspace(0, duration / 1000, int(duration * sample_rate / 1000), False)
     
-    # Create a harp-like timbre using multiple harmonics
-    wave = (
-        np.sin(2 * np.pi * frequency * t) +
-        0.5 * np.sin(4 * np.pi * frequency * t) +
-        0.3 * np.sin(6 * np.pi * frequency * t) +
-        0.2 * np.sin(8 * np.pi * frequency * t)
-    )
+    wave = np.sin(2 * np.pi * frequency * t)
+    envelope = np.exp(-t * 5)  # Adjust the decay rate as needed
+    sound = (wave * envelope * 32767).astype(np.int16)
     
-    # Apply an envelope for a plucked string effect
-    envelope = np.exp(-t * 8)
-    wave = wave * envelope
+    # Convert mono to stereo
+    stereo_sound = np.column_stack((sound, sound))
     
-    # Normalize and convert to 16-bit integer
-    wave = wave / np.max(np.abs(wave))
-    sound = np.asarray([32767 * wave, 32767 * wave]).T.astype(np.int16)
-    sound = pygame.sndarray.make_sound(sound.copy())
+    if recording:
+        recorded_sounds.append(stereo_sound)
+    
+    sound = pygame.sndarray.make_sound(stereo_sound)
     sound.play()
+
+# Function to save recording
+def save_recording():
+    global recorded_sounds
+    if not os.path.exists("recordings"):
+        os.makedirs("recordings")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"recordings/recording_{timestamp}.wav"
+    
+    with wave.open(filename, 'wb') as wf:
+        wf.setnchannels(2)  # Changed to 2 channels for stereo
+        wf.setsampwidth(2)
+        wf.setframerate(44100)
+        for sound in recorded_sounds:
+            wf.writeframes(sound.tobytes())
+    
+    recorded_sounds = []
+    return filename
 
 # New function to play the harp phrase
 def play_harp_phrase(x, y):
@@ -84,8 +116,21 @@ while running:
         if event.type == pygame.QUIT:
             running = False
         elif event.type == pygame.MOUSEBUTTONDOWN:
-            dragging = True
-            last_played_index = -1  # Reset the phrase when starting a new drag
+            x, y = event.pos
+            if record_button.collidepoint(x, y):
+                recording = True
+                recorded_sounds = []
+            elif stop_button.collidepoint(x, y):
+                if recording:
+                    recording = False
+                    current_recording = save_recording()
+            elif play_button.collidepoint(x, y):
+                if current_recording:
+                    pygame.mixer.music.load(current_recording)
+                    pygame.mixer.music.play()
+            else:
+                dragging = True
+                last_played_index = -1
         elif event.type == pygame.MOUSEBUTTONUP:
             dragging = False
         elif event.type == pygame.MOUSEMOTION and dragging:
@@ -97,6 +142,16 @@ while running:
     
     # Clear the screen
     screen.fill((255, 255, 255))
+    
+    # Draw buttons
+    pygame.draw.rect(screen, (255, 0, 0) if recording else (200, 200, 200), record_button)
+    pygame.draw.rect(screen, (200, 200, 200), stop_button)
+    pygame.draw.rect(screen, (200, 200, 200), play_button)
+    
+    # Add text to buttons
+    screen.blit(font.render("Record", True, (0, 0, 0)), (record_button.x + 10, record_button.y + 5))
+    screen.blit(font.render("Stop", True, (0, 0, 0)), (stop_button.x + 20, stop_button.y + 5))
+    screen.blit(font.render("Play", True, (0, 0, 0)), (play_button.x + 20, play_button.y + 5))
     
     # Update the display
     pygame.display.flip()
